@@ -92,6 +92,7 @@ class SimpleDict(dict):
 @click.option('--data-root', type=str, default='./', show_default=True)
 @click.option('--partition', type=str, default='train2014', show_default=True)
 @click.option('--min-size', type=float, default=200., show_default=True)
+@click.option('--size', type=int, default=256, show_default=True)
 @click.option('--cache-dir', type=str, default='./tmp', show_default=True)
 @click.option('--trial', type=bool, default=False, show_default=True)
 
@@ -121,6 +122,7 @@ def main(**kwargs):
         for j, tgt in enumerate(target):
             image_ = crop(image, tgt["bbox"], min_size=args.min_size)
             if image_ is not None:
+                image_ = image_.resize((args.size, args.size), Image.LANCZOS).convert("RGB")
                 category_id = int(tgt["category_id"])
                 category = coco.loadCats(category_id)[0]["name"]
                 name = "{}_{}_{}".format(category, j, meta["file_name"])
