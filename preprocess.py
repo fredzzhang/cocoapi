@@ -84,7 +84,7 @@ class SimpleDict(dict):
         self[name] = value
 
 @click.command()
-@click.option('--data-root', type=str, default='./data', show_default=True)
+@click.option('--data-root', type=str, default='./', show_default=True)
 @click.option('--partition', type=str, default='train2014', show_default=True)
 @click.option('--min-size', type=float, default=200., show_default=True)
 @click.option('--cache-dir', type=str, default='./tmp', show_default=True)
@@ -98,7 +98,7 @@ def main(**kwargs):
 
     # Initialise datasets
     coco = COCO(os.path.join(args.data_root, "annotations/instances_{}.json".format(args.partition)))
-    image_dir = os.path.join(args.data_root, args.partition)
+    image_dir = os.path.join(args.data_root, "images", args.partition)
 
     ids = list(coco.imgs.keys())
     # Select a small collection of images for sanity check
