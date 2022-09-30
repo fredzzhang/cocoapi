@@ -8,21 +8,20 @@ Australian Centre for Robotic Vision
 """
 
 import os
+import sys
 import json
 import click
-import pocket
 import random
 
 from tqdm import tqdm
 from PIL import Image
-from typing import List, Optional
-from hicodet.hicodet import HICODet
 
-def crop(image: Image.Image, bx_1: List[float], bx_2: List[float], min_size: float = 200) -> Optional[Image.Image]:
+sys.path.append("PythonAPI")
+from pycocotools.coco import COCO
 
-    # Find the smallest enclosing box
-    x1 = min(bx_1[0], bx_2[0]); y1 = min(bx_1[1], bx_2[1])
-    x2 = max(bx_1[2], bx_2[2]); y2 = max(bx_1[3], bx_2[3])
+def crop(image, box, min_size=200, max_shift=.5):
+
+    x1, y1, x2, y2 = box
     cx = (x1 + x2) / 2; cy = (y1 + y2) / 2
     bw = x2 - x1; bh = y2 - y1
 
@@ -41,73 +40,86 @@ def crop(image: Image.Image, bx_1: List[float], bx_2: List[float], min_size: flo
     # Check for overflow and underflow
     iw, ih = image.size
     if x1 < 0:
+        # Discard the image if the shifted distance is larger
+        # than a specified proportion of the image dimensions
+        if -x1 >= max_shift * bw:
+            return None
         x2 -= x1; x1 = 0
         if x2 > iw: return None
     if y1 < 0:
+        if -y1 >= max_shift * bh:
+            return None
         y2 -= y1; y1 = 0
         if y2 > ih: return None
     if x2 > iw:
+        if (x2 - iw) >= max_shift * bw:
+            return None
         x1 -= (x2 - iw); x2 = iw
         if x1 < 0:  return None
     if y2 > ih:
+        if (y2 - ih) >= max_shift * bh:
+            return None
         y1 -= (y2 - ih); y2 = ih
         if y1 < 0:  return None
 
-    cropped = image.crop([int(x1), int(y1), int(x2), int(y2)])
+    cropped = image.crop([round(x1), round(y1), round(x2), round(y2)])
 
     # Sanity check
-    iw, ih = cropped.size
-    if iw != ih:
-        raise ValueError(f"The cropped image is not a square! {iw} != {ih}")
+    # iw, ih = cropped.size
+    # if iw != ih:
+    #     raise ValueError("The cropped image is not a square! {} != {}".format(iw, ih))
 
     return cropped
 
+class SimpleDict(dict):
+    def __init__(self, input_dict=None, **kwargs):
+        data_dict = dict() if input_dict is None else input_dict
+        data_dict.update(kwargs)
+        super(SimpleDict, self).__init__(**data_dict)
+    def __getattr__(self, name):
+        if name in self:    return self[name]
+        else:               raise AttributeError(name)
+    def __setattr__(self, name, value):
+        self[name] = value
+
 @click.command()
-@click.option('--data-root', type=str, default='./hicodet', show_default=True)
-@click.option('--partition', type=str, default='train2015', show_default=True)
-@click.option('--class-in', type=int, default=18, show_default=True)
-@click.option('--class-out', type=int, default=0, show_default=True)
+@click.option('--data-root', type=str, default='./data', show_default=True)
+@click.option('--partition', type=str, default='train2014', show_default=True)
 @click.option('--min-size', type=float, default=200., show_default=True)
 @click.option('--cache-dir', type=str, default='./tmp', show_default=True)
 @click.option('--trial', type=bool, default=False, show_default=True)
-@click.option('--simplify', type=bool, default=False, show_default=True)
 
 def main(**kwargs):
-    args = pocket.data.DataDict(kwargs)
+    args = SimpleDict(kwargs)
     # Create directory for preprocessed images
     if not os.path.exists(args.cache_dir):
         os.makedirs(args.cache_dir)
 
     # Initialise datasets
-    dataset = HICODet(
-        root=os.path.join(args.data_root, f'hico_20160224_det/images/{args.partition}'),
-        anno_file=os.path.join(args.data_root, f'instances_{args.partition}.json')
-    )
+    coco = COCO(os.path.join(args.data_root, "annotations/instances_{}.json".format(args.partition)))
+    image_dir = os.path.join(args.data_root, args.partition)
 
-    # Traverse datasets to find images with the designated interaction
-    index_train = [i for i, j in enumerate(dataset._idx) if args.class_in in dataset.annotations[j]['hoi']]
+    ids = list(coco.imgs.keys())
     # Select a small collection of images for sanity check
     if args.trial:
-        index_train = random.sample(index_train, 20)
+        ids = random.sample(ids, 100)
 
     labels = []
     print("Processing the dataset...")
-    for i in tqdm(index_train):
-        image, targets = dataset[i]
-        # Find human-object pairs with the designated interaction
-        keep_idx = [j for j, k in enumerate(targets['hoi']) if k == args.class_in]
-        
-        # Skip complex scenes (with more than one pairs)
-        if args.simplify and len(keep_idx) > 1:
-            continue
+    for i in tqdm(ids):
+        meta = coco.loadImgs(i)[0]
+        image = Image.open(os.path.join(image_dir, meta["file_name"]))
+        target = coco.loadAnns(coco.getAnnIds(i))
 
-        for j in keep_idx:
-            box_h = targets['boxes_h'][j]; box_o = targets['boxes_o'][j]
-            image_ = crop(image, box_h, box_o, min_size=args.min_size)
+        # Crop out each bounding box and save as an image
+        for j, tgt in enumerate(target):
+            image_ = crop(image, tgt["bbox"], min_size=args.min_size)
             if image_ is not None:
-                name = f'{args.partition}_{args.class_in}_{i:08d}_{j+1}.png'
+                category_id = int(tgt["category_id"])
+                category = coco.loadCats(category_id)[0]["name"]
+                name = "{}_{}_{}".format(category, j, meta["file_name"])
                 image_.save(os.path.join(args.cache_dir, name))
-                labels.append([name, args.class_out])
+                labels.append([name, category_id])
 
     # Save the labels
     label_fname = os.path.join(args.cache_dir, 'dataset.json')
