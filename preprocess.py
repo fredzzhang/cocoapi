@@ -19,7 +19,7 @@ from PIL import Image
 sys.path.append("PythonAPI")
 from pycocotools.coco import COCO
 
-def crop(image, box, min_size=200, max_shift=1.):
+def crop(image, box, min_size=128, max_shift=1.25):
 
     x1, y1, bw, bh = box
     x2 = x1 + bw; y2 = y1 + bh
@@ -64,6 +64,11 @@ def crop(image, box, min_size=200, max_shift=1.):
         if y1 < 0:  return None
 
     cropped = image.crop([round(x1), round(y1), round(x2), round(y2)])
+
+    """
+    NOTE that the cropped images are not strictly squares sometimes
+    due to the rounding errors in the box coordinates.
+    """
 
     # Sanity check
     # iw, ih = cropped.size
