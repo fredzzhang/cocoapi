@@ -19,11 +19,12 @@ from PIL import Image
 sys.path.append("PythonAPI")
 from pycocotools.coco import COCO
 
-def crop(image, box, min_size=200, max_shift=.5):
+def crop(image, box, min_size=200, max_shift=1.):
 
-    x1, y1, x2, y2 = box
-    cx = (x1 + x2) / 2; cy = (y1 + y2) / 2
-    bw = x2 - x1; bh = y2 - y1
+    x1, y1, bw, bh = box
+    x2 = x1 + bw; y2 = y1 + bh
+    cx = x1 + bw / 2
+    cy = y1 + bh / 2
 
     # Skip small enclosing boxes
     if max(bw, bh) < min_size:
